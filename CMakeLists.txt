@@ -13,3 +13,4 @@ project ("ComputerClub")
 
 # Включите подпроекты.
 add_subdirectory ("ComputerClub")
+
