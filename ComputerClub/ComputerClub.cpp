@@ -4,6 +4,8 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
+#include <stdexcept>
 
 using namespace std;
 
@@ -18,6 +20,17 @@ int timeToMinutes(const string & time) {
 		throw runtime_error("Error: Неверный формат времени " + time);
 	}
 	return hour * 60 + minute;
+}
+
+//функция йпреобразования минут во время HH:MM
+static std::string formatTime(int t) {
+	int h = t / 60;
+	int m = t % 60;
+	std::ostringstream oss;
+	oss << std::setw(2) << std::setfill('0') << h
+		<< ':'
+		<< std::setw(2) << std::setfill('0') << m;
+	return oss.str();
 }
 
 
@@ -111,7 +124,7 @@ int main()
 				int table;
 				iss >> clientName >> table;
 				if (!iss) {
-					out_events.emplace_back(new SitEvent(timeM, "BadFormat"));
+					out_events.emplace_back(new ErrorEvent(timeM, "BadFormat"));
 					break;
 				}
 				out_events.emplace_back(new SitEvent(timeM, clientName, table));
@@ -148,7 +161,23 @@ int main()
 	}
 
 	state.closeDay(out_events);
+	cout << openTime << "\n";
+	for (auto& ev : out_events) {
+		cout << ev->toString() << "\n";
+	}
+	cout << closeTime << "\n";
 
+	for (int i = 1; i <= numTables; ++i) {
+		int rev = state.getTableRevenue(i);
+		int mins = state.getTableUsage(i);
+		int h = mins / 60, m = mins % 60;
+
+		cout << i << " "
+			<< rev << " "
+			<< setw(2) << setfill('0') << h << ":"
+			<< setw(2) << setfill('0') << m
+			<< "\n";
+	}
 	return 0;
 }
 
@@ -161,7 +190,7 @@ void ArriveEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_events)
 }
 
 string ArriveEvent::toString() const {
-	return to_string(time) + " 1 " + clientName;
+	return formatTime(time) + " 1 " + clientName;
 }
 
 // ---------------------- SitEvent ----------------------
@@ -173,7 +202,7 @@ void SitEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_events) {
 }
 
 string SitEvent::toString() const {
-	return to_string(time) + " 2 " + clientName + " " + to_string(table);
+	return formatTime(time) + " 2 " + clientName + " " + to_string(table);
 }
 
 // ---------------------- WaitEvent ----------------------
@@ -185,7 +214,7 @@ void WaitEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_events) {
 }
 
 string WaitEvent::toString() const {
-	return to_string(time) + " 3 " + clientName;
+	return formatTime(time) + " 3 " + clientName;
 }
 
 // ---------------------- LeaveEvent ----------------------
@@ -197,7 +226,7 @@ void LeaveEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_events) 
 }
 
 string LeaveEvent::toString() const {
-	return to_string(time) + " 4 " + client;
+	return formatTime(time) + " 4 " + client;
 }
 
 // ---------------------- ClientLeftEvent ----------------------
@@ -209,7 +238,7 @@ void ClientLeftEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_eve
 }
 
 string ClientLeftEvent::toString() const {
-	return to_string(time) + " 11 " + clientName;
+	return formatTime(time) + " 11 " + clientName;
 }
 
 // ---------------------- AutoSeatEvent ----------------------
@@ -221,7 +250,7 @@ void AutoSeatEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_event
 }
 
 string AutoSeatEvent::toString() const {
-	return to_string(time) + " 12 " + clientName + " " + to_string(table);
+	return formatTime(time) + " 12 " + clientName + " " + to_string(table);
 }
 
 // ---------------------- ErrorEvent ----------------------
@@ -233,7 +262,7 @@ void ErrorEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_events) 
 }
 
 string ErrorEvent::toString() const {
-	return to_string(time) + " 13 " + message;
+	return formatTime(time) + " 13 " + message;
 }
 
 //МЕТОДЫ CLUBSTATE
@@ -313,13 +342,114 @@ void ClubState::wait(const string& clientName, int timeMinutes, vector<unique_pt
 			return;
 		}
 	}
-
-	// Проверка, что очередь не пуста — один может ждать, больше нельзя
-	if (!waiting.empty()) {
-		out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "QueueIsBusy"));
-		return;
+	for (const auto& table : tables) {
+		if (!table.occupied) {
+			out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "ICanWaitNoLonger!"));
+			return;
+			
+		}
 	}
 
 	// Добавление в очередь
 	waiting.push(clientName);
+	    // Если после вставания очередь стала длиннее, чем столов — клиент уходит
+		if ((int)waiting.size() > numTables) {
+		        // удаляем его из очереди и генерируем уход (ID 11)
+			waiting.pop();
+		out_events.emplace_back(make_unique<ClientLeftEvent>(timeMinutes, clientName));
+		
+	}
 }
+
+
+void ClubState::leave(const string& clientName, int timeMinutes, vector<unique_ptr<Event>>& out_events) {
+	if (!inClub.count(clientName)) {
+		out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "ClientUnknown"));
+		return;
+	}
+
+	// Поиск и освобождение стола, если клиент сидел
+	for (int i = 0; i < numTables; ++i) {
+		if (tables[i].occupied && tables[i].clientName == clientName) {
+			int sessionMinutes = timeMinutes - tables[i].startMinutes;
+			tables[i].totalMinutes += sessionMinutes;
+
+			// Округление вверх по часам
+			int hours = (sessionMinutes + 59) / 60;
+			int earned = hours * price;
+			tables[i].totalRevenue += earned;
+			totalRevenue += earned;
+
+			tables[i].occupied = false;
+			tables[i].clientName.clear();
+			break;
+		}
+	}
+
+	inClub.erase(clientName);
+
+	// Если кто-то ждет — посадить автоматически
+	if (!waiting.empty()) {
+		string nextClient = waiting.front();
+		waiting.pop();
+
+		// Найти первый свободный стол
+		for (int i = 0; i < numTables; ++i) {
+			if (!tables[i].occupied) {
+				tables[i].occupied = true;
+				tables[i].clientName = nextClient;
+				tables[i].startMinutes = timeMinutes;
+				out_events.emplace_back(make_unique<AutoSeatEvent>(timeMinutes, nextClient, i + 1));
+				break;
+			}
+		}
+	}
+}
+
+
+void ClubState::closeDay(vector<unique_ptr<Event>>& out_events) {
+	// Закрытие всех занятых столов
+	for (int i = 0; i < numTables; ++i) {
+		if (tables[i].occupied) {
+			int sessionMinutes = closeMinutes - tables[i].startMinutes;
+			tables[i].totalMinutes += sessionMinutes;
+
+			int hours = (sessionMinutes + 59) / 60;
+			int earned = hours * price;
+			tables[i].totalRevenue += earned;
+			totalRevenue += earned;
+
+			// Событие ухода клиента
+			out_events.emplace_back(make_unique<ClientLeftEvent>(closeMinutes, tables[i].clientName));
+
+			tables[i].occupied = false;
+			tables[i].clientName.clear();
+		}
+	}
+
+	// Удаление клиентов из очереди
+	while (!waiting.empty()) {
+		string client = waiting.front();
+		waiting.pop();
+		out_events.emplace_back(make_unique<ClientLeftEvent>(closeMinutes, client));
+	}
+
+	inClub.clear();
+}
+
+
+int ClubState::getTableRevenue(int table) const {
+	if (table < 1 || table > numTables) return 0;
+	return tables[table - 1].totalRevenue;
+}
+
+int ClubState::getTableUsage(int table) const {
+	if (table < 1 || table > numTables) return 0;
+	return tables[table - 1].totalMinutes;
+}
+
+int ClubState::getTotalRevenue() const {
+	return totalRevenue;
+}
+
+
