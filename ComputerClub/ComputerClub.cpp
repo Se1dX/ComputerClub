@@ -181,7 +181,7 @@ int main()
 	return 0;
 }
 
-// ---------------------- ArriveEvent ----------------------
+//ArriveEvent
 ArriveEvent::ArriveEvent(int t, const std::string& clientName)
 	: Event(t), clientName(clientName) {}
 
@@ -193,7 +193,7 @@ string ArriveEvent::toString() const {
 	return formatTime(time) + " 1 " + clientName;
 }
 
-// ---------------------- SitEvent ----------------------
+//SitEvent
 SitEvent::SitEvent(int t, const std::string& clientName, int tableNumber)
 	: Event(t), clientName(clientName), table(tableNumber) {}
 
@@ -205,7 +205,7 @@ string SitEvent::toString() const {
 	return formatTime(time) + " 2 " + clientName + " " + to_string(table);
 }
 
-// ---------------------- WaitEvent ----------------------
+//WaitEvent
 WaitEvent::WaitEvent(int t, const std::string& clientName)
 	: Event(t), clientName(clientName) {}
 
@@ -217,7 +217,7 @@ string WaitEvent::toString() const {
 	return formatTime(time) + " 3 " + clientName;
 }
 
-// ---------------------- LeaveEvent ----------------------
+//LeaveEvent
 LeaveEvent::LeaveEvent(int t, const std::string& clientName)
 	: Event(t), client(clientName) {}
 
@@ -229,7 +229,7 @@ string LeaveEvent::toString() const {
 	return formatTime(time) + " 4 " + client;
 }
 
-// ---------------------- ClientLeftEvent ----------------------
+//ClientLeftEvent
 ClientLeftEvent::ClientLeftEvent(int t, const std::string& clientName)
 	: Event(t), clientName(clientName) {}
 
@@ -241,7 +241,7 @@ string ClientLeftEvent::toString() const {
 	return formatTime(time) + " 11 " + clientName;
 }
 
-// ---------------------- AutoSeatEvent ----------------------
+//AutoSeatEvent
 AutoSeatEvent::AutoSeatEvent(int t, const std::string& clientName, int tableNumber)
 	: Event(t), clientName(clientName), table(tableNumber) {}
 
@@ -253,12 +253,12 @@ string AutoSeatEvent::toString() const {
 	return formatTime(time) + " 12 " + clientName + " " + to_string(table);
 }
 
-// ---------------------- ErrorEvent ----------------------
+//ErrorEvent
 ErrorEvent::ErrorEvent(int t, const std::string& errorMsg)
 	: Event(t), message(errorMsg) {}
 
 void ErrorEvent::apply(ClubState& state, vector<unique_ptr<Event>>& out_events) {
-	// Ничего не делает
+	//ничего не делает
 }
 
 string ErrorEvent::toString() const {
@@ -290,7 +290,7 @@ void ClubState::sit(const string& clientName, int table, int timeMinutes, vector
 		return;
 	}
 
-	// Проверим, не сидит ли он уже
+	//сидит или нет
 	for (const auto& t : tables) {
 		if (t.occupied && t.clientName == clientName) {
 			out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "PlaceIsBusy"));
@@ -298,7 +298,7 @@ void ClubState::sit(const string& clientName, int table, int timeMinutes, vector
 		}
 	}
 
-	// Проверка корректности номера стола
+	//проверка номера стола
 	if (table < 1 || table > numTables) {
 		out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "InvalidTable"));
 		return;
@@ -310,12 +310,12 @@ void ClubState::sit(const string& clientName, int table, int timeMinutes, vector
 		return;
 	}
 
-	// Садим клиента
+	//садим клиента
 	tableInfo.occupied = true;
 	tableInfo.clientName = clientName;
 	tableInfo.startMinutes = timeMinutes;
 
-	// Удаляем из очереди, если он там есть
+	//удаляем из очереди
 	queue<string> tempQueue;
 	while (!waiting.empty()) {
 		string front = waiting.front();
@@ -329,13 +329,13 @@ void ClubState::sit(const string& clientName, int table, int timeMinutes, vector
 
 
 void ClubState::wait(const string& clientName, int timeMinutes, vector<unique_ptr<Event>>& out_events) {
-	// Проверка, что клиент в клубе
+	//в клубе или нет
 	if (!inClub.count(clientName)) {
 		out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "ClientUnknown"));
 		return;
 	}
 
-	// Проверка, не сидит ли клиент уже
+	//сидит или нет
 	for (const auto& table : tables) {
 		if (table.occupied && table.clientName == clientName) {
 			out_events.emplace_back(make_unique<ErrorEvent>(timeMinutes, "ClientAlreadySeated"));
@@ -350,11 +350,9 @@ void ClubState::wait(const string& clientName, int timeMinutes, vector<unique_pt
 		}
 	}
 
-	// Добавление в очередь
+	//ставим в очередь
 	waiting.push(clientName);
-	    // Если после вставания очередь стала длиннее, чем столов — клиент уходит
 		if ((int)waiting.size() > numTables) {
-		        // удаляем его из очереди и генерируем уход (ID 11)
 			waiting.pop();
 		out_events.emplace_back(make_unique<ClientLeftEvent>(timeMinutes, clientName));
 		
@@ -368,13 +366,11 @@ void ClubState::leave(const string& clientName, int timeMinutes, vector<unique_p
 		return;
 	}
 
-	// Поиск и освобождение стола, если клиент сидел
 	for (int i = 0; i < numTables; ++i) {
 		if (tables[i].occupied && tables[i].clientName == clientName) {
 			int sessionMinutes = timeMinutes - tables[i].startMinutes;
 			tables[i].totalMinutes += sessionMinutes;
 
-			// Округление вверх по часам
 			int hours = (sessionMinutes + 59) / 60;
 			int earned = hours * price;
 			tables[i].totalRevenue += earned;
@@ -388,12 +384,12 @@ void ClubState::leave(const string& clientName, int timeMinutes, vector<unique_p
 
 	inClub.erase(clientName);
 
-	// Если кто-то ждет — посадить автоматически
+	//если в очереди, посадить
 	if (!waiting.empty()) {
 		string nextClient = waiting.front();
 		waiting.pop();
 
-		// Найти первый свободный стол
+		//найти свободный стол
 		for (int i = 0; i < numTables; ++i) {
 			if (!tables[i].occupied) {
 				tables[i].occupied = true;
@@ -408,7 +404,7 @@ void ClubState::leave(const string& clientName, int timeMinutes, vector<unique_p
 
 
 void ClubState::closeDay(vector<unique_ptr<Event>>& out_events) {
-	// Закрытие всех занятых столов
+	//закрытие клуба
 	for (int i = 0; i < numTables; ++i) {
 		if (tables[i].occupied) {
 			int sessionMinutes = closeMinutes - tables[i].startMinutes;
@@ -419,7 +415,7 @@ void ClubState::closeDay(vector<unique_ptr<Event>>& out_events) {
 			tables[i].totalRevenue += earned;
 			totalRevenue += earned;
 
-			// Событие ухода клиента
+			//уход клиентов
 			out_events.emplace_back(make_unique<ClientLeftEvent>(closeMinutes, tables[i].clientName));
 
 			tables[i].occupied = false;
@@ -427,7 +423,7 @@ void ClubState::closeDay(vector<unique_ptr<Event>>& out_events) {
 		}
 	}
 
-	// Удаление клиентов из очереди
+	//очистка очереди
 	while (!waiting.empty()) {
 		string client = waiting.front();
 		waiting.pop();
